@@ -1,0 +1,110 @@
+# =============================================================================
+# Paper LP simulation config
+#
+# Edit values here and rerun simulate_paper_lp.py — no code changes needed.
+# The "PLACEHOLDER" comments mark values that should be replaced with the real
+# Paper deploy values when the contract addresses become available via /info.
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# Trade-side parameters (from the Paper spec, no placeholders)
+# -----------------------------------------------------------------------------
+paper_leverage:           1000        # all positions opened at 1000x in Paper
+bust_buffer_bps:             5        # 5 bps buffer below the zero-margin price
+                                       # (effective tolerance = 1/leverage - 5bps
+                                       #  = 0.0005 = 5bps for 1000x)
+
+max_position_open_usd:  10000000      # $10M cap on opening notional per position
+                                       # (positions may grow past cap if profitable)
+
+# -----------------------------------------------------------------------------
+# Starting state
+# -----------------------------------------------------------------------------
+initial_lp_usd:              0        # LP starts at $0 (per project direction)
+
+# -----------------------------------------------------------------------------
+# PAPER mint curve (defaults from spec: flatRate=100, threshold=$2M, S=$120M)
+# -----------------------------------------------------------------------------
+paper_mint:
+  flat_rate:                   100             # PAPER per $1 LP gain in flat region
+  lp_flat_threshold_usd:    2000000            # below this LP balance: flat rate
+  tail_decay_scale_usd:   120000000            # S in formula: rate = flat * (S/(S+H))²
+                                                # where H is strict HWM of tail-region gain
+
+# -----------------------------------------------------------------------------
+# Stakers — PLACEHOLDERS
+#
+# The spec mentions "every settlement that credits the LP carves a small slice
+# for stakers continuously" but doesn't publish the percentage. It also mentions
+# a "2% loss-branch fee" specifically for losing closes. We use ONE knob (default
+# 10%) applied to every LP-credit event; refine when the protocol publishes
+# concrete numbers.
+# -----------------------------------------------------------------------------
+stakers:
+  continuous_pct_of_lp_gain: 0.10              # PLACEHOLDER: 10% of every LP gain to stakers
+                                                # (spec mentions 2% on losses; user chose 10%)
+  lp_excess_cap_usd:       5000000             # LP capped at $5M; gains beyond this
+                                                # go 100% to stakers ("excess sweep")
+
+# -----------------------------------------------------------------------------
+# Staking — used by charting only (does not affect the sim itself)
+#
+# Determines how stakers' USDC revenue gets divided across PAPER holders
+# in the "fees per PAPER" chart. If we assume 100% of issued PAPER is
+# staked, fees-per-PAPER = stakers_total / paper_supply. If only X% is
+# staked, the same revenue is shared among fewer tokens →
+# fees-per-PAPER = stakers_total / (paper_supply × X).
+# Edit and rerun make_charts.py to see the sensitivity.
+# -----------------------------------------------------------------------------
+staking:
+  assumed_staked_fraction:   1.00              # 1.0 = 100% staked (upper bound)
+                                                # try 0.30, 0.50, etc. for realism
+
+# -----------------------------------------------------------------------------
+# Simulation knobs
+#
+# sample_fraction: fraction of trades to keep (random uniform sampling, which
+# preserves the size distribution). 1.0 = full set. Use 0.1 to test what
+# would happen with only 10% of HL's flow — useful since Paper at launch will
+# likely see far less volume than HL.
+# CLI flag --sample-fraction overrides this value.
+# -----------------------------------------------------------------------------
+simulation:
+  sample_fraction:           1.00              # 1.0 = use all trades
+  sample_seed:                 42              # seed for reproducible sampling
+
+# -----------------------------------------------------------------------------
+# Asymmetric impact (haircut applied to winning closes)
+#
+# Formula:
+#   adjustedPnl = rawPnl × scale
+#   scale       = (1 − base_rate) / (1 + term1 + term2)
+#   term1       = 1 / (move × rate_multiplier)
+#   term2       = reference_notional / (move × position_multiplier)
+#   move        = |close_px − open_px| / open_px
+#
+# These 4 knobs are PER-INSTRUMENT GOVERNANCE PARAMETERS in the Paper contract.
+# They are not published on the public docs site (testnet addresses are rotating
+# and the /info endpoint is on the gated exchange host). Values below are
+# PLACEHOLDERS calibrated so the curve has the spec's shape: steep haircut on
+# tiny moves (anti-manipulation), modest haircut on large moves.
+#
+# Sanity check with these placeholders, BTC:
+#   move = 0.05% (5bps)  → scale ≈ 0.04   → haircut ~96% (user keeps ~4% of profit)
+#   move = 0.5%  (50bps) → scale ≈ 0.30   → haircut ~70%
+#   move = 2%   (200bps) → scale ≈ 0.69   → haircut ~31%
+#   move = 10%  (1000bps)→ scale ≈ 0.89   → haircut ~11%
+#
+# Swap with real values when available.
+# -----------------------------------------------------------------------------
+impact:
+  BTC:
+    base_rate:                  0.05           # PLACEHOLDER
+    rate_multiplier:           1000            # PLACEHOLDER
+    position_multiplier:   10000000            # PLACEHOLDER (units: $)
+    reference_notional_usd:  100000            # PLACEHOLDER: typical BTC trade scale
+  ETH:
+    base_rate:                  0.05           # PLACEHOLDER
+    rate_multiplier:           1000            # PLACEHOLDER
+    position_multiplier:   10000000            # PLACEHOLDER (units: $)
+    reference_notional_usd:   50000            # PLACEHOLDER: smaller ETH scale
