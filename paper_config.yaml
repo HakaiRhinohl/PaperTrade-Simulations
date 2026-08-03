@@ -1,0 +1,115 @@
+# =============================================================================
+# Paper LP simulation config
+#
+# Edit values here and rerun simulate_paper_lp.py — no code changes needed.
+# The "PLACEHOLDER" comments mark values that should be replaced with the real
+# Paper deploy values when the contract addresses become available via /info.
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# Trade-side parameters (from the Paper spec, no placeholders)
+# -----------------------------------------------------------------------------
+paper_leverage:           1000        # all positions opened at 1000x in Paper
+bust_buffer_bps:             5        # 5 bps buffer below the zero-margin price
+                                       # (effective tolerance = 1/leverage - 5bps
+                                       #  = 0.0005 = 5bps for 1000x)
+
+max_position_open_usd:  10000000      # $10M cap on opening notional per position
+                                       # (positions may grow past cap if profitable)
+
+# Deadband: winning PnL is adjusted against the user by half the CLOB spread
+# (anti-manipulation: nullifies profit from nudging the BBO with a mid limit order).
+# The effective winning move is (move - deadband); moves below it retain 0.
+deadband_bps:              0.2         # half-spread deadband in basis points (0.2bps = 0.002%)
+
+# -----------------------------------------------------------------------------
+# Starting state
+# -----------------------------------------------------------------------------
+initial_lp_usd:              0        # LP starts at $0 (per project direction)
+
+# -----------------------------------------------------------------------------
+# PAPER mint curve (defaults from spec: flatRate=100, threshold=$2M, S=$120M)
+# -----------------------------------------------------------------------------
+paper_mint:
+  flat_rate:                   100             # PAPER per $1 LP gain in flat region
+  lp_flat_threshold_usd:    2000000            # below this LP balance: flat rate
+  tail_decay_scale_usd:   120000000            # S in formula: rate = flat * (S/(S+H))²
+                                                # where H is strict HWM of tail-region gain
+
+# -----------------------------------------------------------------------------
+# Stakers + frontend fee split
+#
+# Of every LP-credit event (loss/liquidation), a fixed slice is peeled off the
+# top for stakers and the frontend; the remainder (98%) grows the LP.
+#   Pre-cap  (LP < $5M): stakers 1%, frontend 1%, LP 98%.
+#   Post-cap (LP = $5M): the LP no longer grows, so the 98% overflow sweeps to
+#                        stakers → stakers 99%, frontend 1%.
+# The frontend always takes 1% of protocol income; stakers take 1% while filling
+# and effectively 99% once the pool is capped.
+# -----------------------------------------------------------------------------
+stakers:
+  continuous_pct_of_lp_gain: 0.01              # staker slice of every LP-credit event
+  frontend_pct:              0.01              # frontend slice of every LP-credit event
+  lp_excess_cap_usd:       5000000             # LP capped at $5M; overflow sweeps to
+                                                # stakers (99%), frontend keeps its 1%
+
+# -----------------------------------------------------------------------------
+# Staking — used by charting only (does not affect the sim itself)
+#
+# Determines how stakers' USDC revenue gets divided across PAPER holders
+# in the "fees per PAPER" chart. If we assume 100% of issued PAPER is
+# staked, fees-per-PAPER = stakers_total / paper_supply. If only X% is
+# staked, the same revenue is shared among fewer tokens →
+# fees-per-PAPER = stakers_total / (paper_supply × X).
+# Edit and rerun make_charts.py to see the sensitivity.
+# -----------------------------------------------------------------------------
+staking:
+  assumed_staked_fraction:   1.00              # 1.0 = 100% staked (upper bound)
+                                                # try 0.30, 0.50, etc. for realism
+
+# -----------------------------------------------------------------------------
+# Simulation knobs
+#
+# sample_fraction: fraction of trades to keep (random uniform sampling, which
+# preserves the size distribution). 1.0 = full set. Use 0.1 to test what
+# would happen with only 10% of HL's flow — useful since Paper at launch will
+# likely see far less volume than HL.
+# CLI flag --sample-fraction overrides this value.
+# -----------------------------------------------------------------------------
+simulation:
+  sample_fraction:           1.00              # 1.0 = use all trades
+  sample_seed:                 42              # seed for reproducible sampling
+
+# -----------------------------------------------------------------------------
+# Asymmetric impact (haircut applied to winning closes)
+#
+# Formula (matches the team's deployed contract):
+#   net_move    = max(0, move − deadband)          deadband = half CLOB spread
+#   scale       = (1 − base_rate) / (1 + term1 + term2)     [on net_move]
+#   term1       = 1 / (net_move × rate_multiplier)
+#   term2       = reference_notional / (net_move × position_multiplier)
+#   adjustedPnl = rawPnl × (net_move / move) × scale
+#   move        = |close_px − open_px| / open_px
+#
+# These are Rollbit's published impact parameters: base_rate 0.1,
+# rate_multiplier 15000, rate_exponent 1 (a no-op in term1).
+# position_multiplier is in $-notional units: Rollbit quotes 1384.615 / 923.077
+# in $-millions, i.e. 1,384,615,385 / 923,076,923 here. reference_notional is
+# fixed at 100k (anti-sybil). The deadband zeroes retention below ~0.2bps.
+#
+# Retention (share the trader keeps of a winning move), BTC:
+#   move = 0.05% → 67.0%     move = 1.0%  → 88.6%
+#   move = 0.5%  → 87.2%     move = 5.0%  → 89.7%
+#                            move = 20%   → 89.9%
+# -----------------------------------------------------------------------------
+impact:
+  BTC:
+    base_rate:                  0.10           # rollbit-aligned
+    rate_multiplier:          15000            # rollbit-aligned
+    position_multiplier: 1384615385            # Rollbit BTC 1384.615 in $M
+    reference_notional_usd:  100000            # fixed at 100k (anti-sybil)
+  ETH:
+    base_rate:                  0.10           # rollbit-aligned
+    rate_multiplier:          15000            # rollbit-aligned
+    position_multiplier:  923076923            # Rollbit ETH 923.077 in $M
+    reference_notional_usd:  100000            # fixed at 100k (anti-sybil)
